@@ -39,8 +39,9 @@ streamlit run size_reducer.py
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
+git clone https://github.com/iamchintanparmar/sreamlit-file-tools/File Toolkit.git
+cd File_Toolkit.git
+
 pip install -r requirements.txt
 ```
 
