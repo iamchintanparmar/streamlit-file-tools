@@ -1,0 +1,8 @@
+streamlit
+pandas
+Pillow
+beautifulsoup4
+python-docx
+PyPDF2
+reportlab
+openpyxl
