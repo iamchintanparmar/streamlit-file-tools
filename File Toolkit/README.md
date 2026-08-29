@@ -2,6 +2,13 @@
 
 A collection of simple Streamlit apps for converting and compressing files — all done locally in your browser.
 
+Created and developed by **[Chintan Parmar](https://github.com/iamchintanparmar)**.
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+
+
 ## Apps
 
 ### 1. Universal File Converter (`formate_to_formate.py`)
@@ -41,6 +48,13 @@ pip install -r requirements.txt
 
 - Python 3.8+
 - See `requirements.txt` for all packages
+
+## Author
+
+**Chintan Parmar** — Full-Stack Developer & Creative Technologist
+
+- GitHub: [@iamchintanparmar](https://github.com/iamchintanparmar)
+- Portfolio: [iamchintanparmar.github.io](https://iamchintanparmar.github.io)
 
 ## License
 
