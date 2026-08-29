@@ -2,6 +2,12 @@
 
 A simple Streamlit app to convert files between common formats — text, spreadsheets, documents, and images — right from your browser.
 
+
+Created and developed by **[Chintan Parmar](https://github.com/iamchintanparmar)**.
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 ## Features
 
 - **Text**: `.txt` → PDF, HTML, JSON
@@ -12,8 +18,8 @@ A simple Streamlit app to convert files between common formats — text, spreads
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
+git clone https://github.com/iamchintanparmar/sreamlit-file-tools/Universal File Converter.git
+cd Universal File Converter
 pip install -r requirements.txt
 ```
 
@@ -29,6 +35,12 @@ Then open the local URL shown in your terminal, upload a file, choose the output
 
 - Python 3.8+
 - See `requirements.txt` for all packages
+## Author
+
+**Chintan Parmar** — Full-Stack Developer & Creative Technologist
+
+- GitHub: [@iamchintanparmar](https://github.com/iamchintanparmar)
+- Portfolio: [iamchintanparmar.github.io](https://iamchintanparmar.github.io)
 
 ## License
 
