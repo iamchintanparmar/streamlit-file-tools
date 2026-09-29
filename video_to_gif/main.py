@@ -18,6 +18,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file:
+    # Preview the original video so the user can pick a good start time
     st.video(uploaded_file)
 
     col1, col2 = st.columns(2)
@@ -40,6 +41,7 @@ if uploaded_file:
             step=40
         )
 
+    # Which part of the video to turn into a GIF
     start_time = st.number_input(
         "Start time (seconds)",
         min_value=0.0,
@@ -56,6 +58,8 @@ if uploaded_file:
 
     if st.button("🔄 Convert to GIF", type="primary"):
 
+        # Temp folder cleans itself up when we leave this block,
+        # so nothing gets left behind on disk
         with tempfile.TemporaryDirectory() as temp_dir:
 
             input_path = os.path.join(
@@ -68,20 +72,22 @@ if uploaded_file:
                 "converted.gif"
             )
 
-            # Save uploaded video
+            # FFmpeg needs a real file on disk, so save the upload first
             with open(input_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
             # FFmpeg command
             command = [
                 "ffmpeg",
-                "-y",
-                "-ss", str(start_time),
-                "-t", str(duration),
+                "-y",                    # overwrite output without asking
+                "-ss", str(start_time),  # where to start
+                "-t", str(duration),     # how long to run
                 "-i", input_path,
                 "-vf",
+                # set the frame rate, then resize to the chosen width
+                # (-1 keeps the aspect ratio)
                 f"fps={fps},scale={width}:-1:flags=lanczos",
-                "-loop", "0",
+                "-loop", "0",            # 0 = loop forever
                 output_path
             ]
 
@@ -94,6 +100,7 @@ if uploaded_file:
                         text=True
                     )
 
+                # Non-zero return code means FFmpeg failed, so show its log to help debug
                 if result.returncode != 0:
                     st.error("Failed to convert the video.")
                     st.code(result.stderr)
@@ -114,6 +121,7 @@ if uploaded_file:
                     )
 
             except FileNotFoundError:
+                # subprocess raises this when the ffmpeg binary can't be found
                 st.error(
                     "FFmpeg is not installed or is not available "
                     "in your system PATH."
