@@ -1,26 +1,32 @@
 import io
-import os
 import zipfile
 from dataclasses import dataclass
 
 import streamlit as st
 from PIL import Image
 
+# PyMuPDF is imported as `pymupdf` in newer versions and `fitz` in older ones,
+# so try the new name first and fall back to the old one
 try:
     import pymupdf  # PyMuPDF
 except ImportError:  # pragma: no cover
-    import fitz as pymupdf  # older versions expose the module as `fitz`
+    import fitz as pymupdf
 
 
+# File types we treat as standalone images
 IMAGE_EXTS = {"jpg", "jpeg", "png", "webp", "bmp", "tif", "tiff"}
+
+# Folders inside a docx/pptx/xlsx zip where the embedded images live
 OFFICE_MEDIA_PREFIXES = ("word/media/", "ppt/media/", "xl/media/")
 
 
 def human_size(num_bytes: int) -> str:
     """Return a human-readable file size string."""
     size = float(num_bytes)
+    # Keep dividing by 1024 until the number is small enough to read easily
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
+            # Bytes look nicer as whole numbers, everything else gets one decimal
             return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
         size /= 1024
     return f"{size:.1f} GB"
@@ -37,15 +43,17 @@ def compress_standalone_image(
     Returns (new_bytes, output_extension).
     """
     img = Image.open(io.BytesIO(data))
-    img.load()
+    img.load()  # force PIL to actually read the pixels now, not lazily later
     ext = ext.lower().lstrip(".")
 
+    # Shrink big images first, since that usually saves the most space
     if max_dimension and max(img.size) > max_dimension:
         img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
     out = io.BytesIO()
 
     if ext in ("jpg", "jpeg"):
+        # JPEG can't store transparency, so flatten to RGB first
         if img.mode in ("RGBA", "P", "LA"):
             img = img.convert("RGB")
         img.save(out, format="JPEG", quality=quality, optimize=True)
@@ -54,11 +62,13 @@ def compress_standalone_image(
     if ext == "png":
         # PNG is lossless, so "quality" instead controls palette quantization.
         if img.mode not in ("P",):
+            # Map the 10-95 quality slider to a palette size between 16 and 256 colors
             quantized = img.convert("RGBA").quantize(
                 colors=max(16, min(256, int(quality * 2.7))), method=Image.MEDIANCUT
             )
             quantized.save(out, format="PNG", optimize=True)
         else:
+            # Already a palette image, nothing more to quantize
             img.save(out, format="PNG", optimize=True)
         return out.getvalue(), "png"
 
@@ -76,6 +86,7 @@ def compress_standalone_image(
         return out.getvalue(), "png"
 
     if ext in ("tif", "tiff"):
+        # Lossless deflate compression keeps TIFFs looking identical
         img.save(out, format="TIFF", compression="tiff_deflate")
         return out.getvalue(), "tif"
 
@@ -93,6 +104,8 @@ def _compress_embedded_image(data: bytes, ext: str, quality: int, max_dimension:
     if max_dimension and max(img.size) > max_dimension:
         img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
+    # We keep the same format here (no converting to something else) because the
+    # Office file still points to this exact filename and extension internally
     out = io.BytesIO()
     if ext in ("jpg", "jpeg"):
         if img.mode in ("RGBA", "P", "LA"):
@@ -117,12 +130,16 @@ def compress_office_file(
     inside the underlying OOXML zip archive. Non-image parts are copied
     through unchanged (just re-zipped at max deflate level).
     """
+    # Office files are really just zip archives, so we open it, fix the images,
+    # and write everything into a fresh zip
     zin = zipfile.ZipFile(io.BytesIO(data))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
         for item in zin.infolist():
             raw = zin.read(item.filename)
             low = item.filename.lower()
+
+            # Only touch files that sit in a media folder
             if low.startswith(OFFICE_MEDIA_PREFIXES):
                 ext = low.rsplit(".", 1)[-1]
                 if ext in ("jpg", "jpeg", "png", "webp"):
@@ -145,9 +162,10 @@ def compress_pdf(
     """
     doc = pymupdf.open(stream=data, filetype="pdf")
 
+    # Go through every image on every page and swap in a smaller JPEG version
     for page in doc:
         for img_info in page.get_images(full=True):
-            xref = img_info[0]
+            xref = img_info[0]  # the image's internal ID inside the PDF
             try:
                 base = doc.extract_image(xref)
                 image_bytes = base["image"]
@@ -157,6 +175,7 @@ def compress_pdf(
                 if max_dimension and max(pil_img.size) > max_dimension:
                     pil_img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
+                # JPEG has no alpha channel, so flatten it
                 if pil_img.mode in ("RGBA", "P", "LA"):
                     pil_img = pil_img.convert("RGB")
 
@@ -166,13 +185,16 @@ def compress_pdf(
             except Exception:
                 continue  # skip images that can't be safely replaced
 
+    # garbage=4 + clean + deflate strips unused objects and squeezes the streams
     out_buf = io.BytesIO()
     doc.save(out_buf, garbage=4, deflate=True, clean=True)
     doc.close()
     return out_buf.getvalue()
 
+
 @dataclass
 class ResultItem:
+    """Holds the outcome for one compressed file so we can show it and offer a download."""
     name: str
     original_size: int
     new_size: int
@@ -180,9 +202,11 @@ class ResultItem:
 
 
 def process_file(name: str, data: bytes, img_quality: int, img_max_dim: int,
-                  doc_quality: int, doc_max_dim: int) -> ResultItem | None:
+                 doc_quality: int, doc_max_dim: int) -> ResultItem | None:
+    """Pick the right compressor for a file based on its extension. Returns None if it fails or isn't supported."""
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
+    # Standalone images
     if ext in IMAGE_EXTS:
         try:
             new_data, new_ext = compress_standalone_image(
@@ -192,9 +216,11 @@ def process_file(name: str, data: bytes, img_quality: int, img_max_dim: int,
             st.error(f"Could not process **{name}**: {e}")
             return None
         base = name.rsplit(".", 1)[0]
+        # The extension can change (e.g. BMP -> PNG), so use the one we got back
         out_name = f"{base}_compressed.{new_ext}"
         return ResultItem(out_name, len(data), len(new_data), new_data)
 
+    # PDFs
     if ext == "pdf":
         try:
             new_data = compress_pdf(data, quality=doc_quality, max_dimension=doc_max_dim)
@@ -204,6 +230,7 @@ def process_file(name: str, data: bytes, img_quality: int, img_max_dim: int,
         base = name.rsplit(".", 1)[0]
         return ResultItem(f"{base}_compressed.pdf", len(data), len(new_data), new_data)
 
+    # Word / PowerPoint / Excel files
     if ext in ("docx", "pptx", "xlsx"):
         try:
             new_data = compress_office_file(data, quality=doc_quality, max_dimension=doc_max_dim)
@@ -213,6 +240,7 @@ def process_file(name: str, data: bytes, img_quality: int, img_max_dim: int,
         base = name.rsplit(".", 1)[0]
         return ResultItem(f"{base}_compressed.{ext}", len(data), len(new_data), new_data)
 
+    # Anything else gets skipped with a warning
     st.warning(f"Skipping **{name}** — unsupported file type `.{ext}`")
     return None
 
@@ -226,13 +254,14 @@ def main():
         "(PDF, DOCX, PPTX, XLSX) — all processing happens locally in this app."
     )
 
+    # Sidebar: all the compression knobs live here
     with st.sidebar:
         st.header("Settings")
 
         st.subheader("Images")
         img_quality = st.slider("Image quality", 10, 95, 70, help="Lower = smaller file, more quality loss.")
         img_max_dim = st.slider("Max image dimension (px)", 400, 4000, 1920, step=100,
-                                 help="Longest side is resized down to this if larger.")
+                                help="Longest side is resized down to this if larger.")
 
         st.subheader("Documents (PDF / DOCX / PPTX / XLSX)")
         doc_quality = st.slider("Embedded image quality", 10, 95, 60)
@@ -252,6 +281,7 @@ def main():
         accept_multiple_files=True,
     )
 
+    # Nothing to do until the user uploads something
     if not uploaded_files:
         st.info("Upload images or documents above to get started.")
         return
@@ -259,6 +289,8 @@ def main():
     if st.button("🚀 Compress files", type="primary"):
         results: list[ResultItem] = []
         progress = st.progress(0.0)
+
+        # Process files one by one and keep the progress bar moving
         for i, f in enumerate(uploaded_files):
             data = f.read()
             item = process_file(f.name, data, img_quality, img_max_dim, doc_quality, doc_max_dim)
@@ -273,6 +305,7 @@ def main():
 
         st.success(f"Compressed {len(results)} file(s).")
 
+        # Overall summary across all files
         total_before = sum(r.original_size for r in results)
         total_after = sum(r.new_size for r in results)
         total_saved_pct = (1 - total_after / total_before) * 100 if total_before else 0
@@ -284,16 +317,19 @@ def main():
 
         st.divider()
 
+        # Per-file breakdown with its own download button
         for r in results:
             saved_pct = (1 - r.new_size / r.original_size) * 100 if r.original_size else 0
             col1, col2 = st.columns([3, 1])
             with col1:
                 st.write(f"**{r.name}**")
+                # If the "compressed" file ended up bigger, say so instead of showing a negative percentage
                 st.caption(
                     f"{human_size(r.original_size)} → {human_size(r.new_size)} "
                     f"({saved_pct:.1f}% smaller)" if saved_pct >= 0 else
                     f"{human_size(r.original_size)} → {human_size(r.new_size)} (no reduction)"
                 )
+                # Bar shows how much of the original size is left
                 st.progress(min(max(r.new_size / r.original_size, 0.0), 1.0))
             with col2:
                 st.download_button(
@@ -304,6 +340,7 @@ def main():
                     use_container_width=True,
                 )
 
+        # With more than one file, also offer everything bundled in a single zip
         if len(results) > 1:
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
